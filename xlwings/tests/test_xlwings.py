@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-# To run a single TestClass: nosetests -q -s test_xlwings:TestClass
+# To run a single TestClass: nosetests -q -s test_xlwings:TestRange
+# To run a single Test: nosetests -q -s test_xlwings:TestRange.test_
 
 from __future__ import unicode_literals
 import os
 import sys
 import nose
 from nose.tools import assert_equal
-from datetime import datetime
-from xlwings import Workbook, Sheet, Range, Chart, ChartType
+from datetime import datetime, date
+from xlwings import Workbook, Sheet, Range, Chart, ChartType, RgbColor, Calculation
 if sys.platform.startswith('darwin'):
     from appscript import k as kw
 
@@ -88,11 +89,38 @@ def _skip_if_no_pandas():
         raise nose.SkipTest('pandas missing')
 
 
+class TestApplication:
+    def setUp(self):
+        # Connect to test file and make Sheet1 the active sheet
+        xl_file1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_workbook_1.xlsx')
+        self.wb = Workbook(xl_file1, app_visible=False)
+        Sheet('Sheet1').activate()
+
+    def tearDown(self):
+        self.wb.close()
+
+    def test_screen_updating(self):
+        self.wb.application.screen_updating = False
+        assert_equal(self.wb.application.screen_updating, False)
+
+        self.wb.application.screen_updating = True
+        assert_equal(self.wb.application.screen_updating, True)
+
+    def test_calculation(self):
+        Range('A1').value = 2
+        Range('B1').formula = '=A1 * 2'
+        self.wb.application.calculation = Calculation.xlCalculationManual
+        Range('A1').value = 4
+
+        assert_equal(Range('B1').value, 4)
+        self.wb.application.calculation = Calculation.xlCalculationAutomatic
+        assert_equal(Range('B1').value, 8)
+
 class TestWorkbook:
     def setUp(self):
         # Connect to test file and make Sheet1 the active sheet
         xl_file1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_workbook_1.xlsx')
-        self.wb = Workbook(xl_file1)
+        self.wb = Workbook(xl_file1, app_visible=False)
         Sheet('Sheet1').activate()
 
     def tearDown(self):
@@ -108,7 +136,7 @@ class TestWorkbook:
         assert_equal(self.wb.xl_workbook, Workbook.current().xl_workbook)
 
     def test_set_current(self):
-        wb2 = Workbook()
+        wb2 = Workbook(app_visible=False)
         assert_equal(Workbook.current().xl_workbook, wb2.xl_workbook)
         self.wb.set_current()
         assert_equal(Workbook.current().xl_workbook, self.wb.xl_workbook)
@@ -120,8 +148,8 @@ class TestWorkbook:
 
     def test_reference_two_unsaved_wb(self):
         """Covers GH Issue #63"""
-        wb1 = Workbook()
-        wb2 = Workbook()
+        wb1 = Workbook(app_visible=False)
+        wb2 = Workbook(app_visible=False)
 
         Range('A1').value = 2.  # wb2
         Range('A1', wkb=wb1).value = 1.  # wb1
@@ -132,12 +160,48 @@ class TestWorkbook:
         wb1.close()
         wb2.close()
 
+    def test_save_naked(self):
+
+        cwd = os.getcwd()
+        wb1 = Workbook(app_visible=False)
+        target_file_path = os.path.join(cwd, wb1.name + '.xlsx')
+        if os.path.isfile(target_file_path):
+            os.remove(target_file_path)
+
+        wb1.save()
+
+        assert_equal(os.path.isfile(target_file_path), True)
+
+        wb2 = Workbook(target_file_path, app_visible=False)
+        wb2.close()
+
+        if os.path.isfile(target_file_path):
+            os.remove(target_file_path)
+
+    def test_save_path(self):
+
+        cwd = os.getcwd()
+        wb1 = Workbook(app_visible=False)
+        target_file_path = os.path.join(cwd, 'TestFile.xlsx')
+        if os.path.isfile(target_file_path):
+            os.remove(target_file_path)
+
+        wb1.save(target_file_path)
+
+        assert_equal(os.path.isfile(target_file_path), True)
+
+        wb2 = Workbook(target_file_path, app_visible=False)
+        wb2.close()
+
+        if os.path.isfile(target_file_path):
+            os.remove(target_file_path)
+
 
 class TestSheet:
     def setUp(self):
         # Connect to test file and make Sheet1 the active sheet
         xl_file1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_workbook_1.xlsx')
-        self.wb = Workbook(xl_file1)
+        self.wb = Workbook(xl_file1, app_visible=False)
         Sheet('Sheet1').activate()
 
     def tearDown(self):
@@ -180,12 +244,49 @@ class TestSheet:
         cell = Range('Sheet2', 'G10').value
         assert_equal(cell, None)
 
+    def test_autofit(self):
+        Range('Sheet1', 'A1:D4').value = 'test_string'
+        Sheet('Sheet1').autofit()
+        Sheet('Sheet1').autofit(0)
+        Sheet('Sheet1').autofit(1)
+        Sheet('Sheet1').autofit('r')
+        Sheet('Sheet1').autofit('c')
+        Sheet('Sheet1').autofit('rows')
+        Sheet('Sheet1').autofit('columns')
+
+    def test_add_before(self):
+        new_sheet = Sheet.add(before='Sheet1')
+        assert_equal(Sheet(1).name, new_sheet.name)
+
+    def test_add_after(self):
+        Sheet.add(after=Sheet.count())
+        assert_equal(Sheet(Sheet.count()).name, Sheet.active().name)
+
+        Sheet.add(after=1)
+        assert_equal(Sheet(2).name, Sheet.active().name)
+
+    def test_add_default(self):
+        # TODO: test call without args properly
+        Sheet.add()
+
+    def test_add_named(self):
+        Sheet.add('test', before=1)
+        assert_equal(Sheet(1).name, 'test')
+
+    def test_count(self):
+        count = Sheet.count()
+        assert_equal(count, 3)
+
+    def test_all(self):
+        all_names = [i.name for i in Sheet.all()]
+        assert_equal(all_names, ['Sheet1', 'Sheet2', 'Sheet3'])
+
 
 class TestRange:
     def setUp(self):
         # Connect to test file and make Sheet1 the active sheet
         xl_file1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_range_1.xlsx')
-        self.wb = Workbook(xl_file1)
+        self.wb = Workbook(xl_file1, app_visible=False)
         Sheet('Sheet1').activate()
 
     def tearDown(self):
@@ -500,15 +601,169 @@ class TestRange:
         result = Range('Sheet1', 'A50', atleast_2d=True, asarray=True).value
         assert_equal(np.array([[23]]), result)
 
-    def test_autofit(self):
-        pass  # TODO
+    def test_autofit_range(self):
+        # TODO: compare col/row widths before/after - not implemented yet
+        Range('Sheet1', 'A1:D4').value = 'test_string'
+        Range('Sheet1', 'A1:D4').autofit()
+        Range('Sheet1', 'A1:D4').autofit(0)
+        Range('Sheet1', 'A1:D4').autofit(1)
+        Range('Sheet1', 'A1:D4').autofit('r')
+        Range('Sheet1', 'A1:D4').autofit('c')
+        Range('Sheet1', 'A1:D4').autofit('rows')
+        Range('Sheet1', 'A1:D4').autofit('columns')
+
+    def test_autofit_col(self):
+        # TODO: compare col/row widths before/after - not implemented yet
+        Range('Sheet1', 'A1:D4').value = 'test_string'
+        Range('Sheet1', 'A:D').autofit()
+        Range('Sheet1', 'A:D').autofit(0)
+        Range('Sheet1', 'A:D').autofit(1)
+        Range('Sheet1', 'A:D').autofit('r')
+        Range('Sheet1', 'A:D').autofit('c')
+        Range('Sheet1', 'A:D').autofit('rows')
+        Range('Sheet1', 'A:D').autofit('columns')
+
+    def test_autofit_row(self):
+        # TODO: compare col/row widths before/after - not implemented yet
+        Range('Sheet1', 'A1:D4').value = 'test_string'
+        Range('Sheet1', '1:1000000').autofit()
+        Range('Sheet1', '1:1000000').autofit(0)
+        Range('Sheet1', '1:1000000').autofit(1)
+        Range('Sheet1', '1:1000000').autofit('r')
+        Range('Sheet1', '1:1000000').autofit('c')
+        Range('Sheet1', '1:1000000').autofit('rows')
+        Range('Sheet1', '1:1000000').autofit('columns')
+
+    def test_number_format_cell(self):
+        format_string = "mm/dd/yy;@"
+        Range('Sheet1', 'A1').number_format = format_string
+        result = Range('Sheet1', 'A1').number_format
+        assert_equal(format_string, result)
+
+    def test_number_format_range(self):
+        format_string = "mm/dd/yy;@"
+        Range('Sheet1', 'A1:D4').number_format = format_string
+        result = Range('Sheet1', 'A1:D4').number_format
+        assert_equal(format_string, result)
+
+    def test_get_address(self):
+        res = Range((1,1),(3,3)).get_address()
+        assert_equal(res, '$A$1:$C$3')
+
+        res = Range((1,1),(3,3)).get_address(False)
+        assert_equal(res, '$A1:$C3')
+
+        res = Range((1,1),(3,3)).get_address(True, False)
+        assert_equal(res, 'A$1:C$3')
+
+        res = Range((1,1),(3,3)).get_address(False, False)
+        assert_equal(res, 'A1:C3')
+
+        res = Range((1,1),(3,3)).get_address(include_sheetname=True)
+        assert_equal(res, 'Sheet1!$A$1:$C$3')
+
+        res = Range('Sheet2', (1,1),(3,3)).get_address(include_sheetname=True)
+        assert_equal(res, 'Sheet2!$A$1:$C$3')
+
+        res = Range((1,1),(3,3)).get_address(external=True)
+        assert_equal(res, '[test_range_1.xlsx]Sheet1!$A$1:$C$3')
+
+    def test_hyperlink(self):
+        address = 'www.xlwings.org'
+        # Naked address
+        Range('A1').add_hyperlink(address)
+        assert_equal(Range('A1').value, address)
+        if sys.platform.startswith('darwin'):
+            assert_equal(Range('A1').hyperlink, 'http://' + address)
+        else:
+            assert_equal(Range('A1').hyperlink, 'http://' + address + '/')
+
+        # Address + FriendlyName
+        Range('A2').add_hyperlink(address, 'test_link')
+        assert_equal(Range('A2').value, 'test_link')
+        if sys.platform.startswith('darwin'):
+            assert_equal(Range('A2').hyperlink, 'http://' + address)
+        else:
+            assert_equal(Range('A2').hyperlink, 'http://' + address + '/')
+
+    def test_hyperlink_formula(self):
+        Range('B10').formula = '=HYPERLINK("http://xlwings.org", "xlwings")'
+        assert_equal(Range('B10').hyperlink, 'http://xlwings.org')
+
+    def test_color(self):
+        rgb = (30, 100, 200)
+
+        Range('A1').color = rgb
+        assert_equal(rgb, Range('A1').color)
+
+        Range('A2').color = RgbColor.rgbAqua
+        assert_equal((0, 255, 255), Range('A2').color)
+
+        Range('A2').color = None
+        assert_equal(Range('A2').color, None)
+
+        Range('A1:D4').color = rgb
+        assert_equal(rgb, Range('A1:D4').color)
+
+    def test_size(self):
+        assert_equal(Range('A1:C4').size, 12)
+
+    def test_shape(self):
+        assert_equal(Range('A1:C4').shape, (4, 3))
+
+    def test_len(self):
+        assert_equal(len(Range('A1:C4')), 4)
+
+    def test_iterator(self):
+        Range('A20').value = [[1., 2.], [3., 4.]]
+        l = []
+
+        for i in Range('A20:B21'):
+            l.append(i.value)
+
+        assert_equal(l, [1., 2., 3., 4.])
+
+        Range('Sheet2', 'A20').value = [[1., 2.], [3., 4.]]
+        l = []
+
+        for i in Range('Sheet2', 'A20:B21'):
+            l.append(i.value)
+
+        assert_equal(l, [1., 2., 3., 4.])
+
+    def test_resize(self):
+        r = Range('A1').resize(4, 5)
+        assert_equal(r.shape, (4, 5))
+
+        r = Range('A1').resize(row_size=4)
+        assert_equal(r.shape, (4, 1))
+
+        r = Range('A1:B4').resize(column_size=5)
+        assert_equal(r.shape, (1, 5))
+
+    def test_offset(self):
+        o = Range('A1:B3').offset(3, 4)
+        assert_equal(o.get_address(), '$E$4:$F$6')
+
+        o = Range('A1:B3').offset(row_offset=3)
+        assert_equal(o.get_address(), '$A$4:$B$6')
+
+        o = Range('A1:B3').offset(column_offset=4)
+        assert_equal(o.get_address(), '$E$1:$F$3')
+
+    def test_date(self):
+        date_1 = date(2000, 12, 3)
+        Range('X1').value = date_1
+        date_2 = Range('X1').value
+        assert_equal(date_1, date(date_2.year, date_2.month, date_2.day))
+
 
 
 class TestChart:
     def setUp(self):
         # Connect to test file and make Sheet1 the active sheet
         xl_file1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_chart_1.xlsx')
-        self.wb = Workbook(xl_file1)
+        self.wb = Workbook(xl_file1, app_visible=False)
         Sheet('Sheet1').activate()
 
     def tearDown(self):

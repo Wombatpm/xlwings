@@ -1,6 +1,268 @@
 What's New
 ==========
 
+v0.3.4 (March 9, 2015)
+----------------------
+
+Bug Fixes
+*********
+* The installation error on Windows has been fixed (:issue:`160`)
+
+v0.3.3 (March 8, 2015)
+----------------------
+
+API changes
+***********
+
+None
+
+Enhancements
+************
+
+* New class ``Application`` with ``quit`` method and properties ``screen_updating`` und ``calculation`` (:issue:`101`,
+  :issue:`158`, :issue:`159`). It can be
+  conveniently accessed from within a Workbook (on Windows, ``Application`` is instance dependent). A few examples:
+
+  >>> from xlwings import Workbook, Calculation
+  >>> wb = Workbook()
+  >>> wb.application.screen_updating = False
+  >>> wb.application.calculation = Calculation.xlCalculationManual
+  >>> wb.application.quit()
+
+* New headless mode: The Excel application can be hidden either during ``Workbook`` instantiation or through the
+  ``application`` object:
+
+  >>> wb = Workbook(app_visible=False)
+  >>> wb.application.visible
+  False
+  >>> wb.application.visible = True
+
+* Newly included Excel template which includes the xlwings VBA module and boilerplate code. This is currently
+  accessible from an interactive interpreter session only:
+
+  >>> from xlwings import Workbook
+  >>> Workbook.open_template()
+
+Bug Fixes
+*********
+
+* [Win Version]: ``datetime.date`` objects were causing an error (:issue:`44`).
+
+* Depending on how it was instantiated, Workbook was sometimes missing the ``fullname`` attribute (:issue:`76`).
+
+* ``Range.hyperlink`` was failing if the hyperlink had been set as formula (:issue:`132`).
+
+* A bug introduced in v0.3.0 caused frozen versions (eg. with ``cx_Freeze``) to fail (:issue:`133`).
+
+* [Mac Version]: Sometimes, xlwings was causing an error when quitting the Python interpreter (:issue:`136`).
+
+v0.3.2 (January 17, 2015)
+-------------------------
+
+API changes
+***********
+
+None
+
+Enhancements
+************
+
+None
+
+Bug Fixes
+*********
+
+* The :meth:`xlwings.Workbook.save` method has been fixed to show the expected behavior (:issue:`138`): Previously,
+  calling `save()` without a `path` argument would always create a new file in the current working directory. This is
+  now only happening if the file hasn't been previously saved.
+
+
+
+v0.3.1 (January 16, 2015)
+-------------------------
+
+API changes
+***********
+
+None
+
+Enhancements
+************
+
+* New method :meth:`xlwings.Workbook.save` (:issue:`110`).
+
+* New method :meth:`xlwings.Workbook.set_mock_caller` (:issue:`129`). This makes calling files from both
+  Excel and Python much easier::
+
+    import os
+    from xlwings import Workbook, Range
+
+    def my_macro():
+        wb = Workbook.caller()
+        Range('A1').value = 1
+
+    if __name__ == '__main__':
+        # To run from Python, not needed when called from Excel.
+        # Expects the Excel file next to this source file, adjust accordingly.
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'myfile.xlsm'))
+        Workbook.set_mock_caller(path)
+        my_macro()
+
+* The ``simulation`` example on the homepage works now also on Mac.
+
+Bug Fixes
+*********
+
+* [Win Version]: A long-standing bug that caused the Excel file to close and reopen under certain circumstances has been
+  fixed (:issue:`10`): Depending on your security settings (Trust Center) and in connection with files downloaded from
+  the internet or possibly in connection with some add-ins, Excel was either closing the file and reopening it or giving
+  a "file already open" warning. This has now been fixed which means that the examples downloaded from the homepage should
+  work right away after downloading and unzipping.
+
+
+v0.3.0 (November 26, 2014)
+--------------------------
+
+API changes
+***********
+
+* To reference the calling Workbook when running code from VBA, you now have to use ``Workbook.caller()``. This means
+  that ``wb = Workbook()`` is now consistently creating a new Workbook, whether the code is called interactively or
+  from VBA.
+
+  ==============================  =========================
+  **New**                         **Old**
+  ==============================  =========================
+  ``Workbook.caller()``           ``Workbook()``
+  ==============================  =========================
+
+Enhancements
+************
+This version adds two exciting but still **experimental** features from
+`ExcelPython <http://ericremoreynolds.github.io/excelpython//>`_ (**Windows only!**):
+
+* Optimized connection: Set the ``OPTIMIZED_CONNECTION = True`` in the VBA settings. This will use a COM server that
+  will keep the connection to Python alive between different calls and is therefore much more efficient. However,
+  changes in the Python code are not being picked up until the ``pythonw.exe`` process is restarted by killing it
+  manually in the Windows Task Manager. The suggested workflow is hence to set ``OPTIMIZED_CONNECTION = False`` for
+  development and only set it to ``True`` for production - keep in mind though that this feature is still experimental!
+
+* User Defined Functions (UDFs): Using ExcelPython's wrapper syntax in VBA, you can expose Python functions as UDFs, see
+  :ref:`udfs` for details.
+
+**Note:** ExcelPython's developer add-in that autogenerates the VBA wrapper code by simply using Python decorators
+isn't available through xlwings yet.
+
+
+Further enhancements include:
+
+* New method :meth:`xlwings.Range.resize` (:issue:`90`).
+* New method :meth:`xlwings.Range.offset` (:issue:`89`).
+* New property :attr:`xlwings.Range.shape` (:issue:`109`).
+* New property :attr:`xlwings.Range.size` (:issue:`109`).
+* New property :attr:`xlwings.Range.hyperlink` and new method :meth:`xlwings.Range.add_hyperlink` (:issue:`104`).
+* New property :attr:`xlwings.Range.color` (:issue:`97`).
+* The ``len`` built-in function can now be used on ``Range`` (:issue:`109`):
+
+    >>> len(Range('A1:B5'))
+    5
+
+* The ``Range`` object is now iterable (:issue:`108`)::
+
+    for cell in Range('A1:B2'):
+        if cell.value < 2:
+            cell.color = (255, 0, 0)
+
+* [Mac version]: The VBA module finds now automatically the default Python installation as per ``PATH`` variable on
+  ``.bash_profile`` when ``PYTHON_MAC = ""`` (the default in the VBA settings) (:issue:`95`).
+* The VBA error pop-up can now be muted by setting ``SHOW_LOG = False`` in the VBA settings. To be used with
+  care, but it can be useful on Mac, as the pop-up window is currently showing printed log messages even if no error
+  occurred(:issue:`94`).
+
+Bug Fixes
+*********
+
+* [Mac version]: Environment variables from ``.bash_profile`` are now available when called from VBA, e.g. by using:
+  ``os.environ['USERNAME']`` (:issue:`95`)
+
+
+v0.2.3 (October 17, 2014)
+-------------------------
+
+API changes
+***********
+
+None
+
+Enhancements
+************
+
+* New method ``Sheet.add()`` (:issue:`71`)::
+
+    >>> Sheet.add()  # Place at end with default name
+    >>> Sheet.add('NewSheet', before='Sheet1')  # Include name and position
+    >>> new_sheet = Sheet.add(after=3)
+    >>> new_sheet.index
+    4
+
+* New method ``Sheet.count()``::
+
+    >>> Sheet.count()
+    3
+
+* ``autofit()`` works now also on ``Sheet`` objects, not only on ``Range`` objects (:issue:`66`)::
+
+    >>> Sheet(1).autofit()  # autofit columns and rows
+    >>> Sheet('Sheet1').autofit('c')  # autofit columns
+    >>> Sheet('Sheet1').autofit(0)  # autofit rows
+
+* New property ``number_format`` for ``Range`` objects (:issue:`60`)::
+
+    >>> Range('A1').number_format
+    'General'
+    >>> Range('A1:C3').number_format = '0.00%'
+    >>> Range('A1:C3').number_format
+    '0.00%'
+
+  Works also with the ``Range`` properties ``table``, ``vertical``, ``horizontal``::
+
+    >>> Range('A1').value = [1,2,3,4,5]
+    >>> Range('A1').table.number_format = '0.00%'
+
+* New method ``get_address`` for ``Range`` objects (:issue:`7`)::
+
+    >>> Range((1,1)).get_address()
+    '$A$1'
+    >>> Range((1,1)).get_address(False, False)
+    'A1'
+    >>> Range('Sheet1', (1,1), (3,3)).get_address(True, False, include_sheetname=True)
+    'Sheet1!A$1:C$3'
+    >>> Range('Sheet1', (1,1), (3,3)).get_address(True, False, external=True)
+    '[Workbook1]Sheet1!A$1:C$3'
+
+* New method ``Sheet.all()`` returning a list with all Sheet objects::
+
+    >>> Sheet.all()
+    [<Sheet 'Sheet1' of Workbook 'Book1'>, <Sheet 'Sheet2' of Workbook 'Book1'>]
+    >>> [i.name.lower() for i in Sheet.all()]
+    ['sheet1', 'sheet2']
+    >>> [i.autofit() for i in Sheet.all()]
+
+Bug Fixes
+*********
+
+* xlwings works now also with NumPy < 1.7.0. Before, doing something like ``Range('A1').value = 'Foo'`` was causing
+  a ``NotImplementedError: Not implemented for this type`` error when NumPy < 1.7.0 was installed (:issue:`73`).
+
+* [Win version]: The VBA module caused an error on the 64bit version of Excel (:issue:`72`).
+
+* [Mac version]: The error pop-up wasn't shown on Python 3 (:issue:`85`).
+
+* [Mac version]: Autofitting bigger Ranges, e.g. ``Range('A:D').autofit()`` was causing a time out (:issue:`74`).
+
+* [Mac version]: Sometimes, calling xlwings from Python was causing Excel to show old errors as pop-up alert (:issue:`70`).
+
+
 v0.2.2 (September 23, 2014)
 ---------------------------
 
@@ -45,6 +307,7 @@ API changes
 
 Enhancements
 ************
+
 * [Mac version]: Python errors are now also shown in a Message Box. This makes the Mac version feature equivalent with the
   Windows version (:issue:`57`):
 
@@ -55,12 +318,13 @@ Enhancements
   :ref:`api_sheet` for details (:issue:`62`). A few examples::
 
     >>> Sheet(1).name
-    u'Sheet1'
+    'Sheet1'
     >>> Sheet('Sheet1').clear_contents()
     >>> Sheet.active()
     <Sheet 'Sheet1' of Workbook 'Book1'>
 
-* The ``Range`` class has a new method ``autofit()`` that autofits the width/height of either columns, rows or both.
+* The ``Range`` class has a new method ``autofit()`` that autofits the width/height of either columns, rows or both
+  (:issue:`33`).
 
   *Arguments*::
 
@@ -103,6 +367,7 @@ Enhancements
 
 Bug Fixes
 *********
+
 * The ``atleast_2d`` keyword had no effect on Ranges consisting of a single cell and was raising an error when used in
   combination with the ``asarray`` keyword. Both have been fixed (:issue:`53`)::
 
@@ -116,16 +381,22 @@ Bug Fixes
   object would always just access the latest one, even if the Workbook had been specified (:issue:`63`).
 
 * [Mac version]: When xlwings was imported without ever instantiating a ``Workbook`` object, Excel would start upon
-  quitting the Python interpreter.
+  quitting the Python interpreter (:issue:`51`).
 
-* [Mac version]: When installing xlwings, it now requires ``psutil`` to be at least version ``2.0.0``.
+* [Mac version]: When installing xlwings, it now requires ``psutil`` to be at least version ``2.0.0`` (:issue:`48`).
 
 
 v0.2.1 (August 7, 2014)
 -----------------------
 
+API changes
+***********
+
+None
+
 Enhancements
 ************
+
 * All VBA user settings have been reorganized into a section at the top of the VBA xlwings module::
 
     PYTHON_WIN = ""
@@ -148,13 +419,24 @@ Note that there is a slight difference in the way that this functionality behave
   log file. I.e. if the Status Bar returns to its default ("Ready") but nothing has happened, check out the log file
   for the Python traceback.
 
+Bug Fixes
+*********
+
+None
+
 Special thanks go to Georgi Petrov for helping with this release.
 
 v0.2.0 (July 29, 2014)
 ----------------------
 
+API changes
+***********
+
+None
+
 Enhancements
 ************
+
 * Cross-platform: xlwings is now additionally supporting Microsoft Excel for Mac. The only functionality that is not
   yet available is the possibility to call the Python code from within Excel via VBA macros.
 * The ``clear`` and ``clear_contents`` methods of the ``Workbook`` object now default to the active
@@ -165,6 +447,7 @@ Enhancements
 
 Bug Fixes
 *********
+
 * DataFrames with MultiHeaders were sometimes getting truncated (:issue:`41`).
 
 
@@ -208,6 +491,7 @@ API Changes
 
 Enhancements
 ************
+
 * xlwings is now officially suppported on Python 2.6-2.7 and 3.1-3.4
 * Support for Pandas ``Series`` has been added (:issue:`24`)::
 

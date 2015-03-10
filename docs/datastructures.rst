@@ -18,7 +18,7 @@ cell contains a number, a string, is empty or represents a date:
     1.0
     >>> Range('A2').value = 'Hello'
     >>> Range('A2').value
-    u'Hello'
+    'Hello'
     >>> Range('A3').value is None
     True
     >>> Range('A4').value = datetime(2000, 1, 1)
@@ -32,10 +32,10 @@ Lists
   .. code-block:: python
 
     >>> wb = Workbook()
-    >>> Range('A1:A5').value = 1
+    >>> Range('A1').value = [[1],[2],[3],[4],[5]]  # Column orientation (nested list)
     >>> Range('A1:A5').value
-    [1.0, 1.0, 1.0, 1.0, 1.0]
-    >>> Range('A1:E1').value = [1, 2, 3, 4, 5]
+    [1.0, 2.0, 3.0, 4.0, 5.0]
+    >>> Range('A1').value = [1, 2, 3, 4, 5]
     >>> Range('A1:E1').value
     [1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -45,9 +45,9 @@ Lists
   .. code-block:: python
 
     >>> Range('A1:A5', atleast_2d=True).value
-    [[1.0], [1.0], [1.0], [1.0], [1.0]]
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]
     >>> Range('A1:E1', atleast_2d=True).value
-    [[1.0, 1.0, 1.0, 1.0, 1.0]]
+    [[1.0, 2.0, 3.0, 4.0, 5.0]]
 
 
 * 2 dimensional Ranges are automatically returned as nested lists. When assigning (nested) lists to a Range in Excel,
@@ -58,14 +58,14 @@ Lists
 
     >>> Range('A10').value = [['Foo 1', 'Foo 2', 'Foo 3'], [10, 20, 30]]
     >>> Range((10,1),(11,3)).value
-    [[u'Foo 1', u'Foo 2', u'Foo 3'], [10.0, 20.0, 30.0]]
+    [['Foo 1', 'Foo 2', 'Foo 3'], [10.0, 20.0, 30.0]]
 
 
 .. note:: Try to minimize the number of interactions with Excel. It is always more efficient to do
     ``Range('A1').value = [[1,2],[3,4]]`` than ``Range('A1').value = [1, 2]`` and ``Range('A2').value = [3, 4]``.
 
-The table, vertical and horizontal properties
----------------------------------------------
+The "table", "vertical" and "horizontal" properties
+---------------------------------------------------
 
 Continuing the sample from above, you can get the dimensions of Excel Ranges dynamically through the properties
 ``table``, ``vertical`` and ``horizontal``. All that's needed is the top left cell together with one of these
@@ -74,11 +74,11 @@ properties.
 .. code-block:: python
 
     >>> Range('A10').table.value
-    [[u'Foo 1', u'Foo 2', u'Foo 3'], [10.0, 20.0, 30.0]]
+    [['Foo 1', 'Foo 2', 'Foo 3'], [10.0, 20.0, 30.0]]
     >>> Range('A10').horizontal.value
-    [u'Foo 1', u'Foo 2', u'Foo 3']
+    ['Foo 1', 'Foo 2', 'Foo 3']
     >>> Range('A10').vertical.value
-    [u'Foo 1', 10.0]
+    ['Foo 1', 10.0]
 
 .. note:: Using these properties together with a named Range as top left cell gives you an extremely flexible setup in
     Excel: You can move around the table and change it's size without having to adjust your code, e.g. by using

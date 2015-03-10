@@ -14,8 +14,13 @@ with open(os.path.join(os.path.dirname(__file__), 'xlwings', '__init__.py')) as 
 # Dependencies
 if sys.platform.startswith('win'):
     install_requires = []  # pywin32 can't be installed (yet) with pip
-if sys.platform.startswith('darwin'):
+    # This places dlls next to python.exe for standard setup and in the parent folder for virtualenv
+    data_files = [('', ['xlwings32.dll', 'xlwings64.dll'])]
+elif sys.platform.startswith('darwin'):
     install_requires = ['psutil >= 2.0.0', 'appscript >= 1.0.1']
+    data_files =[]
+else:
+    raise OSError("currently only Windows and OSX are supported.")
 
 setup(
     name='xlwings',
@@ -26,8 +31,9 @@ setup(
     author_email='felix.zumstein@zoomeranalytics.com',
     description='Make Excel fly: Interact with Excel from Python and vice versa.',
     long_description=readme,
+    data_files=data_files,
     packages=['xlwings', 'xlwings.tests'],
-    package_data={'xlwings': ['*.bas', 'tests/*.xlsx']},
+    package_data={'xlwings': ['*.bas', 'tests/*.xlsx', 'xlwings_template.xltm']},
     keywords=['xls', 'excel', 'spreadsheet', 'workbook', 'vba', 'macro'],
     install_requires=install_requires,
     classifiers=[

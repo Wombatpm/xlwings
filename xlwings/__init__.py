@@ -1,24 +1,26 @@
 from __future__ import absolute_import
 import sys
 
-__version__ = '0.2.2'
+__version__ = '0.3.4'
 
 # Python 2 vs 3
 PY3 = sys.version_info[0] == 3
 
 if PY3:
     string_types = str
+    xrange = range
 else:
     string_types = basestring
+    xrange = xrange
 
 # Platform specifics
 if sys.platform.startswith('win'):
-    import xlwings._xlwindows as xlplatform
+    from . import _xlwindows as xlplatform
 else:
-    import xlwings._xlmac as xlplatform
+    from . import _xlmac as xlplatform
 
 time_types = xlplatform.time_types
 
 # API
-from .main import Workbook, Range, Chart, Sheet
+from .main import Application, Workbook, Range, Chart, Sheet
 from .constants import *

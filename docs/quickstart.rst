@@ -13,12 +13,13 @@ Writing/reading values to/from Excel and adding a chart is as easy as:
     >>> from xlwings import Workbook, Sheet, Range, Chart
     >>> wb = Workbook()  # Creates a connection with a new workbook
     >>> Range('A1').value = 'Foo 1'
-    u'Foo1'
+    >>> Range('A1').value
+    'Foo 1'
     >>> Range('A1').value = [['Foo 1', 'Foo 2', 'Foo 3'], [10.0, 20.0, 30.0]]
-    >>> Range('A1').table.value  # Read the whole table back
-    [[u'Foo 1', u'Foo 2', u'Foo 3'], [10.0, 20.0, 30.0]]
+    >>> Range('A1').table.value  # or: Range('A1:C2').value
+    [['Foo 1', 'Foo 2', 'Foo 3'], [10.0, 20.0, 30.0]]
     >>> Sheet(1).name
-    u'Sheet1'
+    'Sheet1'
     >>> chart = Chart.add(source_data=Range('A1').table)
 
 The Range and Chart objects as used above will refer to the active sheet of the current Workbook ``wb``. Include the
@@ -26,7 +27,8 @@ Sheet name like this:
 
 .. code-block:: python
 
-    Range('Sheet1', 'A1').value
+    Range('Sheet1', 'A1:C3').value
+    Range(1, (1,1), (3,3)).value  # index notation
     Chart.add('Sheet1', source_data=Range('Sheet1', 'A1').table)
 
 Qualify the Workbook additionally like this:
@@ -36,6 +38,7 @@ Qualify the Workbook additionally like this:
     Range('Sheet1', 'A1', wkb=wb).value
     Chart.add('Sheet1', wkb=wb, source_data=Range('Sheet1', 'A1', wkb=wb).table)
     Sheet(1, wkb=wb).name
+
 or simply set the current workbook first:
 
 .. code-block:: python
@@ -44,8 +47,6 @@ or simply set the current workbook first:
     Range('Sheet1', 'A1').value
     Chart.add('Sheet1', source_data=Range('Sheet1', 'A1').table)
     Sheet(1).name
-
-
 
 These commands also work seamlessly with **NumPy arrays** and **Pandas DataFrames**, see :ref:`datastructures` for details.
 
@@ -70,7 +71,7 @@ This essentially hands over control to ``mymodule.py``:
 
     def rand_numbers():
         """ produces standard normally distributed random numbers with shape (n,n)"""
-        wb = Workbook()  # Creates a reference to the calling Excel file
+        wb = Workbook.caller()  # Creates a reference to the calling Excel file
         n = Range('Sheet1', 'B1').value  # Write desired dimensions into Cell B1
         rand_num = np.random.randn(n, n)
         Range('Sheet1', 'C3').value = rand_num
@@ -81,7 +82,7 @@ then go to ``File > Import File...`` and import the ``xlwings.bas`` file. ). It 
 your ``xlwings`` installation.
 
 .. note:: Always instantiate the ``Workbook`` within the function that is called from Excel and not outside as global
-    variable. Older versions of the docs/samples were showing the wrong approach.
+    variable.
 
 For further details, see :ref:`vba`.
 

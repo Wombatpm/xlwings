@@ -12,6 +12,9 @@ To begin with, Excel will show any Python errors (but not warnings) in a Message
 .. figure:: images/debugging_error.png
     :scale: 65%
 
+.. note:: On Mac, if the ``import`` of a module/package fails before xlwings is imported, the popup will not be shown and the StatusBar
+    will not be reset. However, the error will still be logged in the log file.
+
 Consider the following code structure of your Python source code:
 
 .. code-block:: python
@@ -19,20 +22,15 @@ Consider the following code structure of your Python source code:
     import os
     from xlwings import Workbook, Range
 
-    def get_workbook():
-        if __name__ == '__main__':
-            # This expects the Excel file to sit next to this source file.
-            this_dir = os.path.dirname(__file__)
-            xl_file_path = os.path.abspath(os.path.join(this_dir, 'myfile.xlsm'))
-            return Workbook(xl_file_path)
-        else:
-            return Workbook()
-
     def my_macro():
-        wb = get_workbook()
+        wb = Workbook.caller()
         Range('A1').value = 1
 
     if __name__ == '__main__':
+        # To run from Python, not needed when called from Excel.
+        # Expects the Excel file next to this source file, adjust accordingly.
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'myfile.xlsm'))
+        Workbook.set_mock_caller(path)
         my_macro()
 
 

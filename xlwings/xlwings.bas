@@ -4,29 +4,55 @@ Attribute VB_Name = "xlwings"
 ' Homepage and documentation: http://xlwings.org
 ' See also: http://zoomeranalytics.com
 '
-' Copyright (C) 2014, Zoomer Analytics LLC.
-' Version: 0.2.2
+' Copyright (C) 2014-2015, Zoomer Analytics LLC.
+' Parts are Copyright (C) 2014, ericremoreynolds.
+' Version: 0.3.4
 '
 ' License: BSD 3-clause (see LICENSE.txt for details)
-
 Option Explicit
-Private Declare Function system Lib "libc.dylib" (ByVal Command As String) As Long
+#If Mac Then
+    Private Declare Function system Lib "libc.dylib" (ByVal Command As String) As Long
+#End If
+#If VBA7 Then
+    #If Win64 Then
+        Const XLPyDLLName As String = "xlwings64.dll"
+        Declare PtrSafe Function XLPyDLLActivateAuto Lib "xlwings64.dll" (ByRef result As Variant, Optional ByVal config As String = "") As Long
+        Declare PtrSafe Function XLPyDLLNDims Lib "xlwings64.dll" (ByRef src As Variant, ByRef dims As Long, ByRef transpose As Boolean, ByRef dest As Variant) As Long
+        Declare PtrSafe Function XLPyDLLVersion Lib "xlwings64.dll" (tag As String, version As Double, arch As String) As Long
+    #Else
+        Private Const XLPyDLLName As String = "xlwings32.dll"
+        Private Declare PtrSafe Function XLPyDLLActivateAuto Lib "xlwings32.dll" (ByRef result As Variant, Optional ByVal config As String = "") As Long
+        Private Declare PtrSafe Function XLPyDLLNDims Lib "xlwings32.dll" (ByRef src As Variant, ByRef dims As Long, ByRef transpose As Boolean, ByRef dest As Variant) As Long
+        Private Declare PtrSafe Function XLPyDLLVersion Lib "xlwings32.dll" (tag As String, version As Double, arch As String) As Long
+    #End If
+    Private Declare PtrSafe Function LoadLibrary Lib "kernel32" Alias "LoadLibraryA" (ByVal lpLibFileName As String) As Long
+#Else
+    Private Const XLPyDLLName As String = "xlwings32.dll"
+    Private Declare Function XLPyDLLActivateAuto Lib "xlwings32.dll" (ByRef result As Variant, Optional ByVal config As String = "") As Long
+    Private Declare Function XLPyDLLNDims Lib "xlwings32.dll" (ByRef src As Variant, ByRef dims As Long, ByRef transpose As Boolean, ByRef dest As Variant) As Long
+    Private Declare Function LoadLibrary Lib "kernel32" Alias "LoadLibraryA" (ByVal lpLibFileName As String) As Long
+    Declare Function XLPyDLLVersion Lib "xlwings32.dll" (tag As String, version As Double, arch As String) As Long
+#End If
 
-Function Settings(ByRef PYTHON_WIN As String, ByRef PYTHON_MAC As String, ByRef PYTHON_FROZEN As String, ByRef PYTHONPATH As String, ByRef LOG_FILE As String)
+Function Settings(ByRef PYTHON_WIN As String, ByRef PYTHON_MAC As String, ByRef PYTHON_FROZEN As String, ByRef PYTHONPATH As String, ByRef LOG_FILE As String, ByRef SHOW_LOG As Boolean, ByRef OPTIMIZED_CONNECTION As Boolean)
     ' PYTHON_WIN: Directory of Python Interpreter on Windows, "" resolves to default on PATH
-    ' PYTHON_MAC: Directory of Python Interpreter on Mac OSX, "" resolves to default on $PATH but NOT .bash_profile!
+    ' PYTHON_MAC: Directory of Python Interpreter on Mac OSX, "" resolves to default path in ~/.bash_profile
     ' PYTHON_FROZEN [Optional]: Currently only on Windows, indicate directory of exe file
     ' PYTHONPATH [Optional]: If the source file of your code is not found, add the path here. Otherwise set to "".
     ' LOG_FILE: Directory including file name, necessary for error handling.
+    ' SHOW_LOG: If False, no pop-up with the Log messages (usually errors) will be shown
+    ' OPTIMIZED_CONNECTION (EXPERIMENTAL!): Currently only on Windows, use a COM Server for an efficient connection
     '
     ' For cross-platform compatibility, use backslashes in relative directories
-    ' For details, see http://xlwings.org
+    ' For details, see http://docs.xlwings.org
 
     PYTHON_WIN = ""
-    PYTHON_MAC = GetMacDir("Home") & "/anaconda/bin"
+    PYTHON_MAC = ""
     PYTHON_FROZEN = ThisWorkbook.Path & "\build\exe.win32-2.7"
     PYTHONPATH = ThisWorkbook.Path
     LOG_FILE = ThisWorkbook.Path & "\xlwings_log.txt"
+    SHOW_LOG = True
+    OPTIMIZED_CONNECTION = False
 
 End Function
 ' DO NOT EDIT BELOW THIS LINE
@@ -38,20 +64,32 @@ Public Function RunPython(PythonCommand As String)
     Dim PYTHON_WIN As String, PYTHON_MAC As String, PYTHON_FROZEN As String, PYTHONPATH As String
     Dim WORKBOOK_FULLNAME As String, LOG_FILE As String, DriveCommand As String, RunCommand As String
     Dim ExitCode As Integer, Res As Integer
+    Dim SHOW_LOG As Boolean, OPTIMIZED_CONNECTION As Boolean
 
     ' Get the settings by using the ByRef trick
-    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE)
+    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE, SHOW_LOG, OPTIMIZED_CONNECTION)
 
     ' Call Python platform-dependent
     #If Mac Then
         Application.StatusBar = "Running..."  ' Non-blocking way of giving feedback that something is happening
-        ExcecuteMac PythonCommand, PYTHON_MAC, LOG_FILE, PYTHONPATH
+        ExcecuteMac PythonCommand, PYTHON_MAC, LOG_FILE, SHOW_LOG, PYTHONPATH
     #Else
-        ExecuteWindows False, PythonCommand, PYTHON_WIN, LOG_FILE, PYTHONPATH
+        ' Make sure that the calling Workbook is the active Workbook
+        ' This is necessary because under certain circumstances, only the GetActiveObject
+        ' call will work (e.g. when Excel opens with a Security Warning, the Workbook
+        ' will not be registered in the RunningObjectTable and thus not accessible via GetObject)
+        ThisWorkbook.Activate
+
+        If OPTIMIZED_CONNECTION = True Then
+            Py.SetAttr Py.Module("xlwings._xlwindows"), "xl_workbook_current", ThisWorkbook
+            Py.Exec "" & PythonCommand & ""
+        Else
+            ExecuteWindows False, PythonCommand, PYTHON_WIN, LOG_FILE, SHOW_LOG, PYTHONPATH
+        End If
     #End If
 End Function
 
-Sub ExcecuteMac(Command As String, PYTHON_MAC As String, LOG_FILE As String, Optional PYTHONPATH As String)
+Sub ExcecuteMac(Command As String, PYTHON_MAC As String, LOG_FILE As String, SHOW_LOG As Boolean, Optional PYTHONPATH As String)
     ' Run Python with the "-c" command line switch: add the path of the python file and run the
     ' Command as first argument, then provide the WORKBOOK_FULLNAME and "from_xl" as 2nd and 3rd arguments.
     ' Finally, redirect stderr to the LOG_FILE and run as background process.
@@ -70,27 +108,34 @@ Sub ExcecuteMac(Command As String, PYTHON_MAC As String, LOG_FILE As String, Opt
     PythonInterpreter = ToPosixPath(PYTHON_MAC & "/python")
     WORKBOOK_FULLNAME = ToPosixPath(ThisWorkbook.FullName)
 
-    ' Build the command (ignore warnings to be in line with Windows where we only show the popup if the ExitCode <>0
-    RunCommand = PythonInterpreter & " -W ignore -c ""import sys; sys.path.append(r'" & PYTHONPATH & "'); " & Command & """ "
-
+    ' Build the command (ignore warnings to be in line with Windows where we only show the popup if the ExitCode <> 0
+    ' -u is needed because on PY3 stderr is buffered by default and so wouldn't be available on time for the pop-up to show
+    RunCommand = PythonInterpreter & " -u -W ignore -c ""import sys; sys.path.append(r'" & PYTHONPATH & "'); " & Command & """ "
 
     ' Send the command to the shell. Courtesy of Robert Knight (http://stackoverflow.com/a/12320294/918626)
     ' Since Excel blocks AppleScript as long as a VBA macro is running, we have to excecute the call as background call
     ' so it can do its magic after this Function has terminated. Python calls ClearUp via the atexit handler.
-    Res = system(RunCommand & """" & WORKBOOK_FULLNAME & """ ""from_xl"" >" & Chr(34) & LOG_FILE & Chr(34) & " 2>&1 &")
 
-    ' If there's a log at this point (normally that will be from the Shell only, not Python) show it and reset the StatusBar
-    Log = ReadFile(LOG_FILE)
-    If Log = "" Then
-        Exit Sub
+    'Check if .bash_profile is existing and source it
+    Res = system("source ~/.bash_profile")
+    If Res = 0 Then
+        Res = system("source ~/.bash_profile;" & RunCommand & """" & WORKBOOK_FULLNAME & """ ""from_xl"" >" & Chr(34) & LOG_FILE & Chr(34) & " 2>&1 &")
     Else
-        ShowError (LOG_FILE)
-        Application.StatusBar = False
+        Res = system(RunCommand & """" & WORKBOOK_FULLNAME & """ ""from_xl"" >" & Chr(34) & LOG_FILE & Chr(34) & " 2>&1 &")
     End If
-
+    ' If there's a log at this point (normally that will be from the Shell only, not Python) show it and reset the StatusBar
+    On Error Resume Next
+        Log = ReadFile(LOG_FILE)
+        If Log = "" Then
+            Exit Sub
+        ElseIf SHOW_LOG = True Then
+            ShowError (LOG_FILE)
+            Application.StatusBar = False
+        End If
+    On Error GoTo 0
 End Sub
 
-Sub ExecuteWindows(IsFrozen As Boolean, Command As String, PYTHON_WIN As String, LOG_FILE As String, Optional PYTHONPATH As String)
+Sub ExecuteWindows(IsFrozen As Boolean, Command As String, PYTHON_WIN As String, LOG_FILE As String, SHOW_LOG As Boolean, Optional PYTHONPATH As String)
     ' Call a command window and change to the directory of the Python installation or frozen executable
     ' Note: If Python is called from a different directory with the fully qualified path, pywintypesXX.dll won't be found.
     ' This seems to be a general issue with pywin32, see http://stackoverflow.com/q/7238403/918626
@@ -121,13 +166,13 @@ Sub ExecuteWindows(IsFrozen As Boolean, Command As String, PYTHON_WIN As String,
         RunCommand = Command & " "
     End If
 
-    ExitCode = Wsh.Run("cmd.exe /C " & DriveCommand & _
+    ExitCode = Wsh.run("cmd.exe /C " & DriveCommand & _
                    RunCommand & _
                    """" & WORKBOOK_FULLNAME & """ ""from_xl"" 2> """ & LOG_FILE & """ ", _
                    WindowStyle, WaitOnReturn)
 
     'If ExitCode <> 0 then there's something wrong
-    If ExitCode <> 0 Then
+    If ExitCode <> 0 And SHOW_LOG = True Then
         Call ShowError(LOG_FILE)
     End If
 
@@ -145,17 +190,18 @@ Public Function RunFrozenPython(Executable As String)
     ' RunFrozenPython("frozen_executable.exe"). Currently not implemented for Mac.
 
     Dim PYTHON_WIN As String, PYTHON_MAC As String, PYTHON_FROZEN As String, PYTHONPATH As String, LOG_FILE As String
+    Dim SHOW_LOG As Boolean, OPTIMIZED_CONNECTION As Boolean
     Dim Res As Integer
 
     ' Get the settings by using the ByRef trick
-    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE)
+    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE, SHOW_LOG, OPTIMIZED_CONNECTION)
 
     ' Call Python
     #If Mac Then
         MsgBox "This functionality is not yet supported on Mac." & vbNewLine & _
                "Please run your scripts directly in Python!", vbCritical + vbOKOnly, "Unsupported Feature"
     #Else
-        ExecuteWindows True, Executable, PYTHON_FROZEN, LOG_FILE
+        ExecuteWindows True, Executable, PYTHON_FROZEN, LOG_FILE, SHOW_LOG
     #End If
 End Function
 
@@ -263,17 +309,81 @@ Private Sub CleanUp()
     Dim PYTHON_WIN As String, PYTHON_MAC As String, PYTHON_FROZEN As String, PYTHONPATH As String
     Dim WORKBOOK_FULLNAME As String, LOG_FILE As String
     Dim Res As Integer
+    Dim SHOW_LOG As Boolean, OPTIMIZED_CONNECTION As Boolean
 
     'Get LOG_FILE
-    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE)
+    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE, SHOW_LOG, OPTIMIZED_CONNECTION)
     LOG_FILE = ToPosixPath(LOG_FILE)
 
     'Show the LOG_FILE as MsgBox if not empty
-    If ReadFile(LOG_FILE) <> "" Then
-        Call ShowError(LOG_FILE)
+    If SHOW_LOG = True Then
+        On Error Resume Next
+        If ReadFile(LOG_FILE) <> "" Then
+            Call ShowError(LOG_FILE)
+        End If
+        On Error GoTo 0
     End If
 
     'Clean up
     Application.StatusBar = False
     Application.ScreenUpdating = True
+    On Error Resume Next
+        KillFileOnMac ToMacPath(ToPosixPath(LOG_FILE))
+    On Error GoTo 0
+End Sub
+
+Function ParentFolder(ByVal Folder)
+  ParentFolder = Left$(Folder, InStrRev(Folder, "\") - 1)
+End Function
+
+'ExcelPython
+Function XLPyCommand()
+    Dim PYTHON_WIN As String, PYTHON_MAC As String, PYTHON_FROZEN As String, PYTHONPATH As String
+    Dim LOG_FILE As String, Tail As String
+    Dim Res As Integer
+    Dim SHOW_LOG As Boolean, OPTIMIZED_CONNECTION As Boolean
+
+    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE, SHOW_LOG, OPTIMIZED_CONNECTION)
+    Tail = " -c ""import sys;sys.path.append(r'" & PYTHONPATH & "');import xlwings.server; xlwings.server.serve('$(CLSID)')"""
+    If PYTHON_WIN = "" Then
+        XLPyCommand = "pythonw.exe" + Tail
+    Else
+        XLPyCommand = PYTHON_WIN + "\pythonw.exe" + Tail
+    End If
+End Function
+
+Private Sub XLPyLoadDLL()
+    Dim PYTHON_WIN As String, PYTHON_MAC As String, PYTHON_FROZEN As String, PYTHONPATH As String
+    Dim LOG_FILE As String, Tail As String
+    Dim Res As Integer
+    Dim SHOW_LOG As Boolean, OPTIMIZED_CONNECTION As Boolean
+
+    Res = Settings(PYTHON_WIN, PYTHON_MAC, PYTHON_FROZEN, PYTHONPATH, LOG_FILE, SHOW_LOG, OPTIMIZED_CONNECTION)
+
+    If PYTHON_WIN <> "" Then
+        On Error Resume Next
+            LoadLibrary PYTHON_WIN + "\" + XLPyDLLName 'Standard instllation
+            LoadLibrary ParentFolder(PYTHON_WIN) + "\" + XLPyDLLName 'Virtualenv
+        On Error GoTo 0
+    End If
+End Sub
+
+Function NDims(ByRef src As Variant, dims As Long, Optional transpose As Boolean = False)
+    XLPyLoadDLL
+    If 0 <> XLPyDLLNDims(src, dims, transpose, NDims) Then Err.Raise 1001, Description:=NDims
+End Function
+
+Function Py()
+    XLPyLoadDLL
+    If 0 <> XLPyDLLActivateAuto(Py, XLPyCommand) Then Err.Raise 1000, Description:=Py
+End Function
+
+Private Sub GetDLLVersion()
+    ' Currently only for testing
+    Dim tag As String, arch As String
+    Dim ver As Double
+    XLPyDLLVersion tag, ver, arch
+    Debug.Print tag
+    Debug.Print ver
+    Debug.Print arch
 End Sub

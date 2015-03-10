@@ -1,17 +1,18 @@
 """
-Copyright (C) 2014, Zoomer Analytics LLC.
+Copyright (C) 2014-2015, Zoomer Analytics LLC.
 All rights reserved.
 
-Version: 0.1.0
 License: BSD 3-clause (see LICENSE.txt for details)
 """
 from __future__ import division
+import os
+import sys
 import numpy as np
 from xlwings import Workbook, Range, Chart
 
-wb = Workbook()
 
 def main():
+    wb = Workbook.caller()
     # User Inputs
     num_simulations = int(Range('E3').value)
     time = Range('E4').value
@@ -22,7 +23,7 @@ def main():
     starting_price = Range('E8').value
     perc_selection = [5, 50, 95]  # percentiles (hardcoded for now)
     # Animation
-    if wb.xl_workbook.ActiveSheet.OLEObjects("ComboBox1").Object.Value == 'Yes':
+    if Range('E9').value.lower() == 'yes':
         animate = True
     else:
         animate = False
@@ -50,13 +51,19 @@ def main():
         if animate:
             Range((t+2,16)).value = percentiles[t,:]
             Range((t+2,19)).value = price[t,0]  # Sample path
-            wb.xl_app.Application.ScreenUpdating = True
+            if sys.platform.startswith('win'):
+                wb.application.screen_updating = True
 
     if not animate:
         Range('P2').value = percentiles
         Range('S2').value = price[:,:1]  # Sample path
 
 if __name__ == '__main__':
+    if not hasattr(sys, 'frozen'):
+        # The next two lines are here to run the example from Python
+        # Ignore them when called in the frozen/standalone version
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'simulation.xlsm'))
+        Workbook.set_mock_caller(path)
     main()
 
 

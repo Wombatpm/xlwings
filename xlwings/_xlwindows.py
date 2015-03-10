@@ -1,13 +1,24 @@
-# TODO: create classes
 # TODO: align clean_xl_data and prepare_xl_data (should work on same dimensions of data)
 
-import datetime as dt
-import win32api  # needed as first import to find all dlls
+import os
+import sys
+
+# Hack to find pythoncom.dll - needed for some distribution/setups
+# E.g. if python is started with the full path outside of the python path, then it almost certainly fails
+cwd = os.getcwd()
+if not hasattr(sys, 'frozen'):
+    # cx_Freeze etc. will fail here otherwise
+    os.chdir(sys.exec_prefix)
+import win32api
+os.chdir(cwd)
+
 import pywintypes
 import pythoncom
-from win32com.client import GetObject, dynamic
+from win32com.client import GetObject, GetActiveObject, dynamic
 import win32timezone
-from .constants import Direction
+import datetime as dt
+from .constants import Direction, ColorIndex
+from .utils import rgb_to_int, int_to_rgb
 
 # Optional imports
 try:
@@ -74,7 +85,6 @@ def _get_latest_app():
     the application that appears first in the Running Object Table (ROT).
     """
     try:
-        _ = xl_workbook_current.Application.Visible
         return xl_workbook_current.Application
     except (NameError, pywintypes.com_error):
         return dynamic.Dispatch('Excel.Application')
@@ -83,7 +93,6 @@ def _get_latest_app():
 def open_workbook(fullname):
     xl_app = _get_latest_app()
     xl_workbook = xl_app.Workbooks.Open(fullname)
-    xl_app.Visible = True
     return xl_app, xl_workbook
 
 
@@ -93,7 +102,6 @@ def close_workbook(xl_workbook):
 
 def new_workbook():
     xl_app = _get_latest_app()
-    xl_app.Visible = True
     xl_workbook = xl_app.Workbooks.Add()
     return xl_app, xl_workbook
 
@@ -215,6 +223,10 @@ def _datetime_to_com_time(dt_time):
     You must not remove this notice, or any other, from this software.
 
     """
+    # Convert date to datetime
+    if type(dt_time) is dt.date:
+        dt_time = dt.datetime(dt_time.year, dt_time.month, dt_time.day,
+                              tzinfo=win32timezone.TimeZoneInfo.utc())
 
     if PY3:
         # The py3 version of pywintypes has its time type inherit from datetime.
@@ -311,15 +323,23 @@ def activate_chart(xl_chart):
 
 
 def autofit(range_, axis):
-    if (axis == 0 or axis == 'rows' or axis == 'r') and not range_.is_column():
+    if axis == 0 or axis == 'rows' or axis == 'r':
         range_.xl_range.Rows.AutoFit()
-    elif (axis == 1 or axis == 'columns' or axis == 'c') and not range_.is_row():
+    elif axis == 1 or axis == 'columns' or axis == 'c':
         range_.xl_range.Columns.AutoFit()
     elif axis is None:
-        if not range_.is_row():
-            range_.xl_range.Columns.AutoFit()
-        if not range_.is_column():
-            range_.xl_range.Rows.AutoFit()
+        range_.xl_range.Columns.AutoFit()
+        range_.xl_range.Rows.AutoFit()
+
+
+def autofit_sheet(sheet, axis):
+    if axis == 0 or axis == 'rows' or axis == 'r':
+        sheet.xl_sheet.Rows.AutoFit()
+    elif axis == 1 or axis == 'columns' or axis == 'c':
+        sheet.xl_sheet.Columns.AutoFit()
+    elif axis is None:
+        sheet.xl_sheet.Rows.AutoFit()
+        sheet.xl_sheet.Columns.AutoFit()
 
 
 def set_xl_workbook_current(xl_workbook):
@@ -332,3 +352,143 @@ def get_xl_workbook_current():
         return xl_workbook_current
     except NameError:
         return None
+
+
+def get_number_format(range_):
+    return range_.xl_range.NumberFormat
+
+
+def set_number_format(range_, value):
+    range_.xl_range.NumberFormat = value
+
+
+def get_address(xl_range, row_absolute, col_absolute, external):
+    return xl_range.GetAddress(row_absolute, col_absolute, 1, external)
+
+
+def add_sheet(xl_workbook, before, after):
+    if before:
+        return xl_workbook.Worksheets.Add(Before=before.xl_sheet)
+    else:
+        # Hack, since "After" is broken in certain environments
+        # see: http://code.activestate.com/lists/python-win32/11554/
+        count = xl_workbook.Worksheets.Count
+        new_sheet_index = after.xl_sheet.Index + 1
+        if new_sheet_index > count:
+            xl_sheet = xl_workbook.Worksheets.Add(Before=xl_workbook.Sheets(after.xl_sheet.Index))
+            xl_workbook.Worksheets(xl_workbook.Worksheets.Count
+                                   ).Move(Before=xl_workbook.Sheets(xl_workbook.Worksheets.Count - 1))
+            xl_workbook.Worksheets(xl_workbook.Worksheets.Count).Activate()
+        else:
+            xl_sheet = xl_workbook.Worksheets.Add(Before=xl_workbook.Sheets(after.xl_sheet.Index + 1))
+        return xl_sheet
+
+
+def count_worksheets(xl_workbook):
+    return xl_workbook.Worksheets.Count
+
+
+def get_hyperlink_address(xl_range):
+    try:
+        return xl_range.Hyperlinks(1).Address
+    except pywintypes.com_error:
+        raise Exception("The cell doesn't seem to contain a hyperlink!")
+
+
+
+def set_hyperlink(xl_range, address, text_to_display=None, screen_tip=None):
+    # Another one of these pywin32 bugs that only materialize under certain circumstances:
+    # http://stackoverflow.com/questions/6284227/hyperlink-will-not-show-display-proper-text
+    link = xl_range.Hyperlinks.Add(Anchor=xl_range, Address=address)
+    link.TextToDisplay = text_to_display
+    link.ScreenTip = screen_tip
+
+
+def set_color(xl_range, color_or_rgb):
+    if color_or_rgb is None:
+        xl_range.Interior.ColorIndex = ColorIndex.xlColorIndexNone
+    elif isinstance(color_or_rgb, int):
+        xl_range.Interior.Color = color_or_rgb
+    else:
+        xl_range.Interior.Color = rgb_to_int(color_or_rgb)
+
+
+def get_color(xl_range):
+    if xl_range.Interior.ColorIndex == ColorIndex.xlColorIndexNone:
+        return None
+    else:
+        return int_to_rgb(xl_range.Interior.Color)
+
+
+def get_xl_workbook_from_xl(fullname):
+    """
+    Under certain circumstances, only the GetActiveObject
+    call will work (e.g. when Excel opens with a Security Warning, the Workbook
+    will not be registered in the RunningObjectTable and thus not accessible via GetObject)
+    """
+    if not is_file_open(unicode(fullname)):
+        xl_app = GetActiveObject('Excel.Application')
+        xl_workbook = xl_app.ActiveWorkbook
+        if xl_workbook.FullName.lower() != fullname.lower():
+            raise Exception("Can't establish connection! "
+                            "Make sure that the calling workbook is the active one "
+                            "and is opened in the first instance of Excel.")
+    else:
+        xl_workbook = GetObject(fullname)
+    return xl_workbook
+
+
+def save_workbook(xl_workbook, path):
+    saved_path = xl_workbook.Path
+    if (saved_path != '') and (path is None):
+        # Previously saved: Save under existing name
+        xl_workbook.Save()
+    elif (saved_path == '') and (path is None):
+        # Previously unsaved: Save under current name in current working directory
+        path = os.path.join(os.getcwd(), xl_workbook.Name + '.xlsx')
+        xl_workbook.Application.DisplayAlerts = False
+        xl_workbook.SaveAs(path)
+        xl_workbook.Application.DisplayAlerts = True
+    elif path:
+        # Save under new name/location
+        xl_workbook.Application.DisplayAlerts = False
+        xl_workbook.SaveAs(path)
+        xl_workbook.Application.DisplayAlerts = True
+
+
+def open_template(fullpath):
+    os.startfile(fullpath)
+
+
+def set_visible(xl_app, visible):
+    xl_app.Visible = visible
+
+
+def get_visible(xl_app):
+    return xl_app.Visible
+
+
+def get_fullname(xl_workbook):
+    return xl_workbook.FullName
+
+
+def quit_app(xl_app):
+    xl_app.DisplayAlerts = False
+    xl_app.Quit()
+    xl_app.DisplayAlerts = True
+
+
+def get_screen_updating(xl_app):
+    return xl_app.ScreenUpdating
+
+
+def set_screen_updating(xl_app, value):
+    xl_app.ScreenUpdating = value
+
+
+def get_calculation(xl_app):
+    return xl_app.Calculation
+
+
+def set_calculation(xl_app, value):
+    xl_app.Calculation = value
